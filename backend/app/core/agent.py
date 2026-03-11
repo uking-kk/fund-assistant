@@ -4,6 +4,7 @@ from app.services.llm import llm_service
 from app.services.fund_api import fund_api
 import json
 import re
+import asyncio
 
 
 class FundAssistantAgent:
@@ -14,6 +15,8 @@ class FundAssistantAgent:
     1. 使用单例模式避免重复初始化
     2. 复用RAG和API实例
     3. 简化意图识别逻辑
+    4. 并发处理基金API调用
+    5. 预热模型
     """
     
     _instance = None
@@ -29,6 +32,22 @@ class FundAssistantAgent:
             return
         self.rag = get_rag_retriever()
         self._initialized = True
+        
+    async def warmup(self):
+        """
+        预热模型和缓存
+        """
+        # 预热LLM服务
+        try:
+            await llm_service.simple_chat("ping")
+        except:
+            pass
+        
+        # 预热基金API
+        try:
+            await fund_api.search_fund("ping")
+        except:
+            pass
     
     async def chat(self, question: str) -> AsyncGenerator[str, None]:
         intent = self._detect_intent(question)
@@ -68,19 +87,35 @@ class FundAssistantAgent:
         return "\n\n".join(docs) if docs else "请根据你的知识回答。"
     
     async def _fund_query(self, question: str) -> str:
+        # 并发处理
+        tasks = []
+        
+        # 提取基金代码
         match = re.search(r'\d{6}', question)
         if match:
-            detail = await fund_api.get_fund_detail(match.group())
-            if detail:
-                return json.dumps(detail, ensure_ascii=False, indent=2)
+            tasks.append(fund_api.get_fund_detail(match.group()))
         
+        # 提取关键词
         keywords = re.sub(r'[查询一下的基金]', '', question).strip()
         if keywords:
-            results = await fund_api.search_fund(keywords)
-            if results:
-                detail = await fund_api.get_fund_detail(results[0].get("code"))
-                if detail:
-                    return json.dumps(detail, ensure_ascii=False, indent=2)
+            tasks.append(fund_api.search_fund(keywords))
+        
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理基金详情
+            for result in results:
+                if isinstance(result, dict) and result:
+                    return json.dumps(result, ensure_ascii=False, indent=2)
+                elif isinstance(result, list) and result:
+                    # 异步获取第一个基金的详情
+                    try:
+                        detail = await fund_api.get_fund_detail(result[0].get("code"))
+                        if detail:
+                            return json.dumps(detail, ensure_ascii=False, indent=2)
+                    except:
+                        pass
+        
         return "未找到相关基金信息"
     
     async def _fund_recommend(self, question: str) -> str:
@@ -91,16 +126,30 @@ class FundAssistantAgent:
         else:
             fund_type = "混合型"
         
-        results = await fund_api.search_fund(fund_type)
-        if results:
-            return json.dumps(results[:3], ensure_ascii=False, indent=2)
+        try:
+            results = await fund_api.search_fund(fund_type)
+            if results:
+                return json.dumps(results[:3], ensure_ascii=False, indent=2)
+        except:
+            pass
+        
         return "暂无推荐结果"
 
 
 _agent_instance = None
 
-def get_agent() -> FundAssistantAgent:
+async def get_agent() -> FundAssistantAgent:
     """获取Agent单例"""
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = FundAssistantAgent()
+        # 预热
+        await _agent_instance.warmup()
+    return _agent_instance
+
+
+def sync_get_agent() -> FundAssistantAgent:
+    """同步获取Agent单例"""
     global _agent_instance
     if _agent_instance is None:
         _agent_instance = FundAssistantAgent()

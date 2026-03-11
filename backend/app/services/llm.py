@@ -1,47 +1,51 @@
-from openai import OpenAI
+from openai import AsyncOpenAI
 from app.config import get_settings
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Dict
 
 settings = get_settings()
 
 
 class LLMService:
     """
-    LLM服务 - 使用火山方舟API
+    LLM服务 - 使用火山方舟API（异步版本）
+    
+    使用 Chat API（兼容OpenAI格式）:
+    - base_url: https://ark.cn-beijing.volces.com/api/v3
+    - 端点: /chat/completions
     """
     
     def __init__(self):
-        self.client = OpenAI(
+        self.client = AsyncOpenAI(
             base_url=settings.ARK_BASE_URL,
             api_key=settings.ARK_API_KEY,
         )
         self.model = settings.ARK_MODEL
     
-    def chat(self, messages: list, stream: bool = False):
+    async def chat(self, messages: List[Dict], stream: bool = False):
         """
         对话接口
         
         Args:
-            messages: 消息列表
+            messages: 消息列表 [{"role": "user", "content": "..."}]
             stream: 是否流式输出
             
         Returns:
             模型响应
         """
         if stream:
-            return self.client.chat.completions.create(
+            return await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 stream=True
             )
         else:
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages
             )
             return response.choices[0].message.content
     
-    async def chat_stream(self, messages: list) -> AsyncGenerator[str, None]:
+    async def chat_stream(self, messages: List[Dict]) -> AsyncGenerator[str, None]:
         """
         流式对话
         
@@ -51,17 +55,17 @@ class LLMService:
         Yields:
             str: 流式输出的内容片段
         """
-        stream = self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             stream=True
         )
         
-        for chunk in stream:
-            if chunk.choices[0].delta.content:
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
     
-    def simple_chat(self, prompt: str) -> str:
+    async def simple_chat(self, prompt: str) -> str:
         """
         简单对话
         
@@ -72,7 +76,7 @@ class LLMService:
             模型响应
         """
         messages = [{"role": "user", "content": prompt}]
-        return self.chat(messages)
+        return await self.chat(messages)
 
 
 llm_service = LLMService()

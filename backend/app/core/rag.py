@@ -6,10 +6,12 @@ from typing import List, Optional, Tuple
 from functools import lru_cache
 import os
 
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
 
 @lru_cache(maxsize=1)
 def get_embeddings():
-    """单例模式获取Embeddings，避免重复加载模型"""
+    """单例模式获取Embeddings，使用国内镜像"""
     return HuggingFaceEmbeddings(
         model_name="BAAI/bge-small-zh-v1.5",
         model_kwargs={'device': 'cpu'},
@@ -24,7 +26,7 @@ class RAGRetriever:
     优化点：
     1. 使用单例模式避免重复加载向量模型
     2. 延迟初始化向量数据库
-    3. 缓存检索结果
+    3. 使用国内镜像加速模型下载
     """
     
     _instance = None

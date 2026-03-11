@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from app.core.agent import FundAssistantAgent
+from app.core.agent import get_agent
 import json
 
 router = APIRouter()
@@ -21,7 +21,7 @@ async def chat(request: ChatRequest):
     
     async def generate():
         try:
-            agent = FundAssistantAgent()
+            agent = await get_agent()
             
             async for chunk in agent.chat(request.message):
                 data = json.dumps({
